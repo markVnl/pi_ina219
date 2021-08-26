@@ -5,10 +5,10 @@ Supports the Raspberry Pi using the I2C bus.
 import logging
 import time
 from math import trunc
-import Adafruit_GPIO.I2C as I2C
+import smbus2 
 
 
-class INA219:
+class INA219_SMB2:
     """Class containing the INA219 functionality."""
 
     RANGE_16V = 0  # Range 0-16 volts
@@ -32,6 +32,7 @@ class INA219:
     ADC_64SAMP = 14  # 64 samples at 12-bit, conversion time 34.05ms.
     ADC_128SAMP = 15  # 128 samples at 12-bit, conversion time 68.10ms.
 
+    __BUSNUM = 1
     __ADDRESS = 0x40
 
     __REG_CONFIG = 0x00
@@ -91,7 +92,7 @@ class INA219:
     __CURRENT_LSB_FACTOR = 32800
 
     def __init__(self, shunt_ohms, max_expected_amps=None,
-                 busnum=None, address=__ADDRESS,
+                 busnum=__BUSNUM, address=__ADDRESS,
                  log_level=logging.ERROR):
         """Construct the class.
 
@@ -113,7 +114,8 @@ class INA219:
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(log_level)
 
-        self._i2c = I2C.get_i2c_device(address=address, busnum=busnum)
+        self._i2c_bus = smbus2.SMBus(busnum)
+        self._i2c_address = address
         self._shunt_ohms = shunt_ohms
         self._max_expected_amps = max_expected_amps
         self._min_device_current_lsb = self._calculate_min_current_lsb()
@@ -385,13 +387,14 @@ class INA219:
             "write register 0x%02x: 0x%04x 0b%s" %
             (register, register_value,
              self.__binary_as_string(register_value)))
-        self._i2c.writeList(register, register_bytes)
+        self._i2c_bus.write_i2c_block_data(self._i2c_address, register, register_bytes)
 
     def __read_register(self, register, negative_value_supported=False):
+        register_bytes = self._i2c_bus.read_i2c_block_data(self._i2c_address, register, 2)         
+        register_value = int.from_bytes([register_bytes[0], register_bytes[1]], byteorder='big')
         if negative_value_supported:
-            register_value = self._i2c.readS16BE(register)
-        else:
-            register_value = self._i2c.readU16BE(register)
+            if (register_value > 0x7FFF):
+                register_value -= 0xFFFF
         self.logger.debug(
             "read register 0x%02x: 0x%04x 0b%s" %
             (register, register_value,
